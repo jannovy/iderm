@@ -53,6 +53,7 @@ func (a *App) openGitPanel() {
 		return
 	}
 	a.closeSearch()
+	a.cmd.active = false
 	a.gitPanel.active = true
 	a.buildGitRows()
 	a.refreshGit()

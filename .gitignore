@@ -5,3 +5,6 @@
 .DS_Store
 .idea/
 .vscode/
+
+# Cross-compiled release binaries
+/dist/

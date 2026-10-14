@@ -52,6 +52,12 @@ func (a *App) handleKey(ev *tcell.EventKey) {
 		}
 		return
 	}
+	if a.cmd.active {
+		if !a.commanderKey(ev) {
+			a.globalKey(ev)
+		}
+		return
+	}
 	if a.globalKey(ev) {
 		return
 	}
@@ -83,6 +89,8 @@ func (a *App) globalKey(ev *tcell.EventKey) bool {
 		a.closeTab()
 	case tcell.KeyCtrlP:
 		a.openSearch()
+	case tcell.KeyF2:
+		a.toggleCommander()
 	case tcell.KeyF21:
 		a.openHistory()
 	case tcell.KeyF9, tcell.KeyCtrlBackslash:
@@ -327,6 +335,20 @@ func (a *App) treeKey(ev *tcell.EventKey) {
 func (a *App) handleMouse(ev *tcell.EventMouse) {
 	x, y := ev.Position()
 	btn := ev.Buttons()
+	if y == 0 { // main bar
+		switch {
+		case btn == tcell.ButtonNone:
+			a.mouseDown = false
+		case btn&tcell.Button1 != 0 && !a.mouseDown:
+			a.mouseDown = true
+			if a.prompt == nil {
+				a.showHelp = false
+				a.mainBarClick(x)
+			}
+		}
+		return
+	}
+	y-- // the rest of the UI lives below the main bar
 	g := a.geo
 	if a.showHelp {
 		if btn != tcell.ButtonNone {
@@ -352,6 +374,12 @@ func (a *App) handleMouse(ev *tcell.EventMouse) {
 		if btn&tcell.Button1 != 0 {
 			a.mouseDown = true
 		}
+		if y == 0 && a.mode() == modeGit {
+			if first && btn&tcell.Button1 != 0 {
+				a.gitTabClick(x)
+			}
+			return
+		}
 		handled := false
 		switch {
 		case a.view.active:
@@ -361,11 +389,14 @@ func (a *App) handleMouse(ev *tcell.EventMouse) {
 		default:
 			handled = a.gitPanelMouse(x, y, btn, first)
 		}
-		if handled {
-			return
+		if !handled && a.view.active && a.cmd.active {
+			a.view.active = false // click outside the viewer returns to the panels
 		}
-		a.closeGitPanel()
-		a.mouseDown = false
+		return
+	}
+	if a.cmd.active {
+		a.commanderMouse(x, y, btn)
+		return
 	}
 	if y == g.h-2 && btn&tcell.Button1 != 0 && !a.mouseDown && x >= g.branchX[0] && x < g.branchX[1] {
 		a.mouseDown = true

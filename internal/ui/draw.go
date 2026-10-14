@@ -70,20 +70,26 @@ func (a *App) draw() {
 	a.scr.Clear()
 	w, h := a.scr.Size()
 	g := geometry{w: w, h: h, textY: 2, textH: max(h-4, 1)}
-	if a.showTree {
+	if a.showTree && a.mode() == modeIDE {
 		g.treeW = min(32, max(w/4, 16)) + 1
 	}
 	g.edX = g.treeW
 	g.edW = max(w-g.edX, 1)
 	a.geo = g
 
-	if a.showTree {
+	if a.showTree && a.mode() == modeIDE {
 		a.drawTree()
 	}
 	a.drawTabs()
 	a.drawEditor()
 	a.drawStatus()
 	a.drawMessage()
+	if a.cmd.active {
+		a.drawCommander()
+		if a.prompt == nil {
+			a.scr.HideCursor()
+		}
+	}
 	if a.gitPanel.active {
 		a.drawGitPanel()
 	}
@@ -96,7 +102,12 @@ func (a *App) draw() {
 	if (a.gitPanel.active || a.hist.active || a.view.active) && a.prompt == nil {
 		a.scr.HideCursor()
 	}
-	a.drawSearchBar()
+	switch {
+	case a.search.active || a.mode() == modeIDE:
+		a.drawSearchBar()
+	case a.mode() == modeGit:
+		a.drawGitTabs()
+	}
 	if a.search.active {
 		a.drawSearchResults()
 	}
@@ -104,6 +115,7 @@ func (a *App) draw() {
 		a.scr.HideCursor()
 		a.drawHelp()
 	}
+	a.drawMainBar()
 	a.scr.Show()
 }
 
@@ -397,6 +409,14 @@ func (a *App) drawMessage() {
 		a.put(0, y, g.w, a.msg, st)
 		return
 	}
+	if a.cmd.active && !a.gitPanel.active && !a.view.active && !a.hist.active {
+		if a.cmd.busy {
+			a.put(0, y, g.w, a.cmd.progress+"   (Esc cancel)", styleActive)
+		} else {
+			a.drawFKeys(y)
+		}
+		return
+	}
 	if a.gitPanel.active && !a.view.active && !a.hist.active {
 		a.put(0, y, g.w, gitHints, styleDim)
 		return
@@ -413,6 +433,11 @@ func (a *App) drawMessage() {
 
 var helpLines = []string{
 	"iderm – PHP editor",
+	"",
+	"Modes: click IDE | Files | Git in the top bar, or F2 (Files), F9 (Git), Esc (back to IDE)",
+	"F2  file manager (two panels, Midnight Commander keys):",
+	"  Tab other panel  Enter open  Insert/Space mark  + - * select  = same dir  Ctrl+U swap",
+	"  F3 view  F4 edit  Shift+F4 new file  F5 copy  F6 move  Shift+F6 rename  F7 mkdir  F8 delete",
 	"",
 	"Files                             Editing",
 	"  Ctrl+O   open (Tab completes)     Ctrl+Z / Ctrl+Y   undo / redo",

@@ -63,6 +63,7 @@ func (a *App) openHistory() {
 		a.setErr("Not a git repository")
 		return
 	}
+	a.cmd.active = false
 	h := &a.hist
 	h.active, h.focus = true, paneCommits
 	h.details = map[string]*git.CommitDetail{}

@@ -38,7 +38,12 @@ type geometry struct {
 
 // App is the editor application.
 type App struct {
-	scr  tcell.Screen
+	scr  tcell.Screen // drawing surface below the main bar
+	real tcell.Screen // the whole terminal
+
+	barRanges    [][2]int
+	gitTabRanges [][2]int
+
 	root string
 	php  string
 
@@ -85,6 +90,7 @@ type App struct {
 	gitPanel     gitPanel
 	hist         historyView
 	view         textView
+	cmd          commander
 
 	lintTimer *time.Timer
 	quit      bool
@@ -116,7 +122,8 @@ func (a *App) Run() (err error) {
 	if err := scr.Init(); err != nil {
 		return err
 	}
-	a.scr = scr
+	a.real = scr
+	a.scr = &offsetScreen{Screen: scr, dy: 1}
 	defer func() {
 		if r := recover(); r != nil {
 			scr.Fini()
@@ -174,6 +181,10 @@ func (a *App) handle(ev tcell.Event) {
 			a.refreshGit()
 		case gitOpDone:
 			a.gitOpFinished(d)
+		case fmProgress:
+			a.cmd.progress = d.text
+		case fmDone:
+			a.fmFinished(d)
 		}
 	}
 }
