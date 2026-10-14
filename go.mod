@@ -1,4 +1,4 @@
-module iderm
+module github.com/jannovy/iderm
 
 go 1.27.2
 

@@ -5,7 +5,7 @@ package index
 import (
 	"strings"
 
-	"iderm/internal/syntax"
+	"github.com/jannovy/iderm/internal/syntax"
 )
 
 // TokKind is the kind of a code token.

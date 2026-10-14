@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"iderm/internal/syntax"
+	"github.com/jannovy/iderm/internal/syntax"
 )
 
 // Location is a resolved declaration.

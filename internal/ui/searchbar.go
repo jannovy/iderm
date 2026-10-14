@@ -10,7 +10,7 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 
-	"iderm/internal/index"
+	"github.com/jannovy/iderm/internal/index"
 )
 
 type resultKind uint8

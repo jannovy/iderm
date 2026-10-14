@@ -6,7 +6,7 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 
-	"iderm/internal/git"
+	"github.com/jannovy/iderm/internal/git"
 )
 
 const (

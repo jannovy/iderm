@@ -8,9 +8,9 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 
-	"iderm/internal/buffer"
-	"iderm/internal/git"
-	"iderm/internal/syntax"
+	"github.com/jannovy/iderm/internal/buffer"
+	"github.com/jannovy/iderm/internal/git"
+	"github.com/jannovy/iderm/internal/syntax"
 )
 
 // gitClass is the git state of a file or directory for coloring.

@@ -3,7 +3,7 @@ package ui
 import (
 	"testing"
 
-	"iderm/internal/buffer"
+	"github.com/jannovy/iderm/internal/buffer"
 )
 
 func tabWith(text string, cur Pos) *Tab {

@@ -6,7 +6,7 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 
-	"iderm/internal/buffer"
+	"github.com/jannovy/iderm/internal/buffer"
 )
 
 // smartFold: the search ignores case unless the query contains an uppercase letter.

@@ -6,8 +6,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"iderm/internal/ui"
+	"github.com/jannovy/iderm/internal/ui"
 )
+
+// version is set at build time by GoReleaser.
+var version = "dev"
 
 const usage = `Usage: iderm [directory] [file...]
 
@@ -26,6 +29,10 @@ func main() {
 	for _, arg := range os.Args[1:] {
 		if arg == "-h" || arg == "--help" {
 			fmt.Print(usage)
+			return
+		}
+		if arg == "-v" || arg == "--version" {
+			fmt.Println("iderm", version)
 			return
 		}
 		if fi, err := os.Stat(arg); err == nil && fi.IsDir() {

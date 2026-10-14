@@ -15,7 +15,7 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/mattn/go-runewidth"
 
-	"iderm/internal/fileops"
+	"github.com/jannovy/iderm/internal/fileops"
 )
 
 type fmEntry struct {

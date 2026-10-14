@@ -7,7 +7,7 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 
-	"iderm/internal/git"
+	"github.com/jannovy/iderm/internal/git"
 )
 
 func itoa(n int) string { return strconv.Itoa(n) }

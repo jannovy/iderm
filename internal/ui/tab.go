@@ -4,9 +4,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"iderm/internal/buffer"
-	"iderm/internal/git"
-	"iderm/internal/syntax"
+	"github.com/jannovy/iderm/internal/buffer"
+	"github.com/jannovy/iderm/internal/git"
+	"github.com/jannovy/iderm/internal/syntax"
 )
 
 type Pos = buffer.Pos

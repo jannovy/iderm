@@ -6,7 +6,7 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 
-	"iderm/internal/index"
+	"github.com/jannovy/iderm/internal/index"
 )
 
 // indexReady is posted when the background index build finishes.

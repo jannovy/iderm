@@ -7,7 +7,7 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 
-	"iderm/internal/git"
+	"github.com/jannovy/iderm/internal/git"
 )
 
 // textView is a read-only overlay for diffs and the commit log.
