@@ -1,0 +1,7 @@
+# Built binary
+/iderm
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
