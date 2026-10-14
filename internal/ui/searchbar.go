@@ -29,6 +29,7 @@ type result struct {
 	hl            [2]int // highlighted rune range of label; hl[1] == 0 means none
 	file          string
 	line, col     int
+	action        func() // when set, Enter runs it instead of opening file
 }
 
 // searchBar is the "search everywhere" field above the editor. In picker
@@ -248,6 +249,10 @@ func (a *App) openResult(i int) {
 	}
 	r := s.results[i]
 	a.closeSearch()
+	if r.action != nil {
+		r.action()
+		return
+	}
 	if r.kind == resFile {
 		a.pushHistory()
 		a.openFile(r.file)
@@ -407,6 +412,8 @@ var badgeColors = map[string]tcell.Color{
 	"const":     tcell.NewHexColor(0xD19A66),
 	"property":  tcell.NewHexColor(0xE06C75),
 	"variable":  tcell.NewHexColor(0xE06C75),
+	"branch":    tcell.NewHexColor(0x98C379),
+	"new":       tcell.NewHexColor(0x61AFEF),
 	"text":      tcell.NewHexColor(0x9DA5B4),
 }
 

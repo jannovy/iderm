@@ -8,6 +8,7 @@ import (
 	"github.com/mattn/go-runewidth"
 
 	"iderm/internal/buffer"
+	"iderm/internal/git"
 	"iderm/internal/syntax"
 )
 
@@ -23,7 +24,7 @@ var (
 	errColor     = tcell.NewHexColor(0xE06C75)
 	okColor      = tcell.NewHexColor(0x98C379)
 	styleErr     = styleDefault.Foreground(errColor).Bold(true)
-	styleDir     = styleDefault.Foreground(tcell.NewHexColor(0x61AFEF)).Bold(true)
+	styleDir     = styleDefault.Bold(true)
 	styleActive  = styleDefault.Foreground(tcell.NewHexColor(0xE5C07B)).Bold(true)
 	styleTreeSel = styleDefault.Background(tcell.NewHexColor(0x2C5A8C)).Foreground(tcell.NewHexColor(0xFFFFFF))
 	treeDimBg    = tcell.NewHexColor(0x3E4451)
@@ -83,6 +84,18 @@ func (a *App) draw() {
 	a.drawEditor()
 	a.drawStatus()
 	a.drawMessage()
+	if a.gitPanel.active {
+		a.drawGitPanel()
+	}
+	if a.hist.active {
+		a.drawHistory()
+	}
+	if a.view.active {
+		a.drawTextView()
+	}
+	if (a.gitPanel.active || a.hist.active || a.view.active) && a.prompt == nil {
+		a.scr.HideCursor()
+	}
 	a.drawSearchBar()
 	if a.search.active {
 		a.drawSearchResults()
@@ -124,6 +137,9 @@ func (a *App) drawTree() {
 		default:
 			st = styleDefault
 		}
+		if c := a.gitClassOf(n.path, n.dir); c != gcNone {
+			st = st.Foreground(gitColors[c])
+		}
 		if tr.scroll+i == tr.sel {
 			if a.focus == focusTree {
 				st = styleTreeSel
@@ -158,6 +174,9 @@ func (a *App) drawTabs() {
 		st := styleTabBar
 		if i == a.active {
 			st = styleTabAct
+		}
+		if c := a.gitClassOf(t.buf.Path, false); c != gcNone {
+			st = st.Foreground(gitColors[c])
 		}
 		start := x
 		x = a.put(x, 1, g.w, label, st)
@@ -200,6 +219,7 @@ func (a *App) drawEditor() {
 		t.hl.Invalidate(dirty)
 	}
 	a.ensureVisible(t, textW, g.textH)
+	t.updateMarks()
 
 	errLines := map[int]bool{}
 	for _, e := range t.lint {
@@ -229,6 +249,20 @@ func (a *App) drawEditor() {
 			numSt = styleErrMark
 		}
 		a.put(textX-1-len(num), y, textX, num, numSt)
+		if li < len(t.marks) && t.marks[li] != 0 {
+			m := t.marks[li]
+			ch, color := '▎', gitColors[gcModified]
+			switch {
+			case m&git.Added != 0:
+				color = gitColors[gcAdded]
+			case m&git.Modified != 0:
+			case m&git.DeletedAbove != 0:
+				ch, color = '▔', gitColors[gcConflict]
+			default:
+				ch, color = '▁', gitColors[gcConflict]
+			}
+			a.scr.SetContent(textX-1, y, ch, nil, styleDefault.Foreground(color))
+		}
 
 		line := t.buf.Line(li)
 		var kinds []syntax.Kind
@@ -334,7 +368,14 @@ func (a *App) drawStatus() {
 	rx := g.w - runewidth.StringWidth(right)
 	a.put(rx, y, g.w, right, styleStatus)
 	if lint != "" {
-		a.put(rx-runewidth.StringWidth(lint)-3, y, rx, lint, lintSt)
+		rx -= runewidth.StringWidth(lint) + 3
+		a.put(rx, y, g.w, lint, lintSt)
+	}
+	a.geo.branchX = [2]int{}
+	if b := a.branchLabel(); b != "" {
+		bx := rx - runewidth.StringWidth(b) - 3
+		a.put(bx, y, rx, b, styleStatus.Foreground(gitColors[gcAdded]))
+		a.geo.branchX = [2]int{bx, bx + runewidth.StringWidth(b)}
 	}
 }
 
@@ -354,6 +395,10 @@ func (a *App) drawMessage() {
 			st = styleErr
 		}
 		a.put(0, y, g.w, a.msg, st)
+		return
+	}
+	if a.gitPanel.active && !a.view.active && !a.hist.active {
+		a.put(0, y, g.w, gitHints, styleDim)
 		return
 	}
 	t := a.tab()
@@ -390,6 +435,11 @@ var helpLines = []string{
 	"  F3 / Shift+F3  next / previous    Ctrl+T            back",
 	"  Ctrl+R   replace",
 	"  Ctrl+G   go to line[:col]       Syntax is checked while you type.",
+	"",
+	"Git  (gutter: green ▎ added, blue ▎ changed, red ▔ deleted)",
+	"  F9, Ctrl+\\  git panel            Space stage/unstage   c commit   d discard",
+	"  click ⎇ in status bar             Enter diff  p push  P pull  b branches",
+	"  Shift+F9 or l in panel  history: branches, commit graph, commit files and diffs",
 	"",
 	"Press any key to close.",
 }

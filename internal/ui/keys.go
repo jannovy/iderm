@@ -34,6 +34,24 @@ func (a *App) handleKey(ev *tcell.EventKey) {
 		a.promptKey(ev)
 		return
 	}
+	if a.view.active {
+		if !a.viewKey(ev) {
+			a.globalKey(ev)
+		}
+		return
+	}
+	if a.hist.active {
+		if !a.historyKey(ev) {
+			a.globalKey(ev)
+		}
+		return
+	}
+	if a.gitPanel.active {
+		if !a.gitPanelKey(ev) {
+			a.globalKey(ev)
+		}
+		return
+	}
 	if a.globalKey(ev) {
 		return
 	}
@@ -65,10 +83,23 @@ func (a *App) globalKey(ev *tcell.EventKey) bool {
 		a.closeTab()
 	case tcell.KeyCtrlP:
 		a.openSearch()
+	case tcell.KeyF21:
+		a.openHistory()
+	case tcell.KeyF9, tcell.KeyCtrlBackslash:
+		if ev.Key() == tcell.KeyF9 && ev.Modifiers()&tcell.ModShift != 0 {
+			a.openHistory()
+			return true
+		}
+		if a.gitPanel.active || a.hist.active {
+			a.closeGitPanel()
+		} else {
+			a.openGitPanel()
+		}
 	case tcell.KeyF5:
 		a.tree.reload()
 		a.buildIndex()
-		a.setMsg("Reloading file tree and index…")
+		a.openRepo()
+		a.setMsg("Reloading file tree, index and git status…")
 	case tcell.KeyPgUp:
 		if !ctrl {
 			return false
@@ -311,6 +342,35 @@ func (a *App) handleMouse(ev *tcell.EventMouse) {
 		if a.searchMouse(x, y, btn) {
 			return
 		}
+	}
+	if a.view.active || a.hist.active || a.gitPanel.active {
+		if btn == tcell.ButtonNone {
+			a.mouseDown = false
+			return
+		}
+		first := !a.mouseDown
+		if btn&tcell.Button1 != 0 {
+			a.mouseDown = true
+		}
+		handled := false
+		switch {
+		case a.view.active:
+			handled = a.viewMouse(x, y, btn, first)
+		case a.hist.active:
+			handled = a.historyMouse(x, y, btn, first)
+		default:
+			handled = a.gitPanelMouse(x, y, btn, first)
+		}
+		if handled {
+			return
+		}
+		a.closeGitPanel()
+		a.mouseDown = false
+	}
+	if y == g.h-2 && btn&tcell.Button1 != 0 && !a.mouseDown && x >= g.branchX[0] && x < g.branchX[1] {
+		a.mouseDown = true
+		a.openGitPanel()
+		return
 	}
 	inTree := a.showTree && x < g.treeW
 	if btn&(tcell.WheelUp|tcell.WheelDown) != 0 {

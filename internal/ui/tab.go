@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"iderm/internal/buffer"
+	"iderm/internal/git"
 	"iderm/internal/syntax"
 )
 
@@ -26,10 +27,15 @@ type Tab struct {
 	hl      *syntax.Highlighter // nil for non-PHP files
 	lint    []lintError
 	lintVer int // buffer version the lint result belongs to
+
+	head     []string // file content at HEAD, for change markers
+	hasHead  bool
+	marks    []git.LineMark
+	marksVer int
 }
 
 func newTab(b *buffer.Buffer) *Tab {
-	t := &Tab{buf: b, follow: true, lintVer: -1}
+	t := &Tab{buf: b, follow: true, lintVer: -1, marksVer: -1}
 	t.updateLanguage()
 	return t
 }

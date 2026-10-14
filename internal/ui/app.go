@@ -13,6 +13,7 @@ import (
 	"github.com/gdamore/tcell/v2"
 
 	"iderm/internal/buffer"
+	"iderm/internal/git"
 	"iderm/internal/index"
 )
 
@@ -32,6 +33,7 @@ type geometry struct {
 	textH     int
 	gutterW   int
 	tabRanges [][2]int // x ranges of tab titles
+	branchX   [2]int   // x range of the branch in the status bar
 }
 
 // App is the editor application.
@@ -72,6 +74,17 @@ type App struct {
 	mouseDown bool
 	lastClick time.Time
 	lastPos   Pos
+
+	repo         *git.Repo
+	gitStatus    *git.Status
+	gitFiles     map[string]git.FileStatus // absolute path -> status
+	gitDirs      map[string]gitClass
+	gitBusy      bool
+	gitAgain     bool
+	gitOpRunning bool
+	gitPanel     gitPanel
+	hist         historyView
+	view         textView
 
 	lintTimer *time.Timer
 	quit      bool
@@ -118,6 +131,8 @@ func (a *App) Run() (err error) {
 		a.startLint(t)
 	}
 	a.buildIndex()
+	a.openRepo()
+	a.startGitTicker()
 	for !a.quit {
 		a.draw()
 		a.handle(scr.PollEvent())
@@ -153,6 +168,12 @@ func (a *App) handle(ev tcell.Event) {
 			a.startTextSearch(d.gen)
 		case textSearchDone:
 			a.textSearchFinished(d)
+		case gitStatusResult:
+			a.gitStatusDone(d)
+		case gitTick:
+			a.refreshGit()
+		case gitOpDone:
+			a.gitOpFinished(d)
 		}
 	}
 }
@@ -210,6 +231,7 @@ func (a *App) openFile(path string) {
 		a.showTree, a.focus = true, focusTree
 		if a.scr != nil {
 			a.buildIndex()
+			a.openRepo()
 		}
 		return
 	}
@@ -232,6 +254,7 @@ func (a *App) openFile(path string) {
 	a.focus = focusEditor
 	if a.scr != nil {
 		a.startLint(t)
+		a.loadHead(t)
 	}
 }
 
@@ -275,6 +298,10 @@ func (a *App) save(t *Tab, after func()) {
 	if index.IsPHP(t.buf.Path) {
 		a.index.UpdateFile(t.buf.Path)
 	}
+	if !t.hasHead {
+		a.loadHead(t) // "save as" or a file committed meanwhile
+	}
+	a.refreshGit()
 	a.tree.reload()
 	a.startLint(t)
 	if after != nil {
