@@ -84,7 +84,7 @@ func (a *App) jumpTo(file string, line, col int) {
 // on failure, and the result tells whether a jump happened.
 func (a *App) gotoDefinition(quiet bool) bool {
 	t := a.tab()
-	if t.hl == nil {
+	if !t.isPHP() {
 		if !quiet {
 			a.setErr("Go to definition works in PHP files only")
 		}

@@ -20,7 +20,7 @@ const (
 )
 
 func (k SymKind) String() string {
-	return [...]string{"class", "interface", "trait", "enum", "function", "method", "const", "property"}[k]
+	return [...]string{"class", "interface", "trait", "enum", "function", "method", "const", "property", "variable", "keyword"}[k]
 }
 
 // staticType marks a return type of self/static/$this, i.e. the receiver class.
@@ -36,7 +36,14 @@ type Symbol struct {
 	File  string
 	Line  int
 	Col   int
+
+	Visibility string // public, protected or private (members)
+	Static     bool
+	Params     string // "(Type $a, $b = …)" for functions and methods
 }
+
+// Builtin reports whether the symbol comes from PHP itself (no source file).
+func (s *Symbol) Builtin() bool { return s.File == "" }
 
 // ClassInfo is a class-like declaration with its members.
 type ClassInfo struct {
@@ -57,6 +64,9 @@ type FileInfo struct {
 	FuncUses  map[string]string // lower alias -> function FQN
 	Classes   []*ClassInfo
 	Functions []*Symbol
+
+	NamespaceLine int // line of the namespace statement, -1 when none
+	LastUseLine   int // line of the last top-level use statement, -1 when none
 }
 
 var scalarTypes = toSet(`int float bool string array void never mixed object iterable callable null false true
@@ -158,7 +168,7 @@ var (
 
 // Parse extracts declarations from tokens of a file.
 func Parse(path string, toks []Token) *FileInfo {
-	f := &FileInfo{Path: path, Uses: map[string]string{}, FuncUses: map[string]string{}}
+	f := &FileInfo{Path: path, Uses: map[string]string{}, FuncUses: map[string]string{}, NamespaceLine: -1, LastUseLine: -1}
 	tok := func(i int) Token {
 		if i >= 0 && i < len(toks) {
 			return toks[i]
@@ -204,11 +214,15 @@ func Parse(path string, toks []Token) *FileInfo {
 				f.Namespace = ""
 			}
 			f.Uses, f.FuncUses = map[string]string{}, map[string]string{}
+			f.NamespaceLine = t.Line
 			if tok(i + 1).is("{") {
 				topDepth = depth + 1
 			}
 		case t.isWord("use") && cls == nil && depth == topDepth && !tok(i+1).is("("):
 			i = parseUse(f, toks, i+1)
+			if i < len(toks) {
+				f.LastUseLine = toks[i].Line
+			}
 		case t.isWord("use") && cls != nil && depth == clsDepth:
 			for i++; i < len(toks) && !toks[i].is(";") && !toks[i].is("{"); i++ {
 				if toks[i].Kind == TIdent {
@@ -279,8 +293,10 @@ func Parse(path string, toks []Token) *FileInfo {
 					sym.Type = f.typeOf(m[1], cls)
 				}
 			}
+			sym.Params = formatParams(toks[paramsStart+1 : min(k, len(toks))])
 			if inClass {
 				sym.Kind, sym.Class, sym.FQN = Method, cls.FQN, cls.FQN+"::"+n.Text
+				sym.Visibility, sym.Static = modsBefore(toks, i)
 				cls.Members = append(cls.Members, sym)
 				if strings.EqualFold(n.Text, "__construct") {
 					promotedProperties(f, cls, toks[paramsStart:k])
@@ -290,19 +306,20 @@ func Parse(path string, toks []Token) *FileInfo {
 				f.Functions = append(f.Functions, sym)
 			}
 			doc = ""
-			i = j
+			i = k // skip the parameters: they are not properties
 		case t.isWord("const") && cls != nil && depth == clsDepth:
 			j := i + 1
 			for tok(j).Kind == TIdent && tok(j+1).Kind == TIdent {
 				j++ // typed constant: const string NAME
 			}
 			if n := tok(j); n.Kind == TIdent {
-				cls.Members = append(cls.Members, &Symbol{Kind: Const, Name: n.Text, Class: cls.FQN, FQN: cls.FQN + "::" + n.Text, File: path, Line: n.Line, Col: n.Col})
+				vis, _ := modsBefore(toks, i)
+				cls.Members = append(cls.Members, &Symbol{Kind: Const, Name: n.Text, Class: cls.FQN, FQN: cls.FQN + "::" + n.Text, File: path, Line: n.Line, Col: n.Col, Visibility: vis, Static: true})
 				i = j
 			}
 		case t.isWord("case") && cls != nil && cls.Kind == Enum && depth == clsDepth:
 			if n := tok(i + 1); n.Kind == TIdent {
-				cls.Members = append(cls.Members, &Symbol{Kind: Const, Name: n.Text, Class: cls.FQN, FQN: cls.FQN + "::" + n.Text, Type: cls.FQN, File: path, Line: n.Line, Col: n.Col})
+				cls.Members = append(cls.Members, &Symbol{Kind: Const, Name: n.Text, Class: cls.FQN, FQN: cls.FQN + "::" + n.Text, Type: cls.FQN, File: path, Line: n.Line, Col: n.Col, Visibility: "public", Static: true})
 				i++
 			}
 		case t.Kind == TVar && cls != nil && depth == clsDepth:
@@ -316,6 +333,7 @@ func Parse(path string, toks []Token) *FileInfo {
 func property(f *FileInfo, cls *ClassInfo, toks []Token, i int, doc string) *Symbol {
 	t := toks[i]
 	sym := &Symbol{Kind: Property, Name: t.Text[1:], Class: cls.FQN, FQN: cls.FQN + "::$" + t.Text[1:], File: f.Path, Line: t.Line, Col: t.Col}
+	sym.Visibility, sym.Static = modsBefore(toks, i)
 	var parts []string // collected backwards
 	for j := i - 1; j >= 0; j-- {
 		p := toks[j]
@@ -338,6 +356,84 @@ func property(f *FileInfo, cls *ClassInfo, toks []Token, i int, doc string) *Sym
 		}
 	}
 	return sym
+}
+
+// modsBefore reads the modifiers (skipping a type) written before token i.
+func modsBefore(toks []Token, i int) (visibility string, static bool) {
+	visibility = "public"
+	for j := i - 1; j >= 0; j-- {
+		t := toks[j]
+		switch {
+		case t.Kind == TIdent && modifiers[strings.ToLower(t.Text)]:
+			switch w := strings.ToLower(t.Text); w {
+			case "private", "protected", "public":
+				visibility = w
+			case "static":
+				static = true
+			}
+		case t.Kind == TIdent || t.is("?") || t.is("|") || t.is("&"):
+		default:
+			return
+		}
+	}
+	return
+}
+
+// formatParams renders a parameter list like "(?Foo $a, int ...$rest, $b = …)".
+func formatParams(toks []Token) string {
+	var params []string
+	var cur []Token
+	depth := 0
+	flush := func() {
+		if len(cur) == 0 {
+			return
+		}
+		var typ []string
+		name, prefix, def := "", "", false
+		for i, t := range cur {
+			switch {
+			case name == "" && t.Kind == TVar:
+				name = t.Text
+			case name == "" && t.is("&"):
+				prefix += "&"
+			case name == "" && t.is(".") && i+2 < len(cur) && cur[i+1].is(".") && cur[i+2].is("."):
+				prefix += "..."
+			case name == "" && t.is("."):
+			case name == "" && t.Kind == TIdent && modifiers[strings.ToLower(t.Text)]:
+			case name == "" && (t.Kind == TIdent || t.is("?") || t.is("|")):
+				typ = append(typ, t.Text)
+			case name != "" && t.is("="):
+				def = true
+			}
+		}
+		if name == "" {
+			cur = cur[:0]
+			return
+		}
+		s := prefix + name
+		if len(typ) > 0 {
+			s = strings.Join(typ, "") + " " + s
+		}
+		if def {
+			s += " = …"
+		}
+		params = append(params, s)
+		cur = cur[:0]
+	}
+	for _, t := range toks {
+		switch {
+		case t.is("(") || t.is("["):
+			depth++
+		case t.is(")") || t.is("]"):
+			depth--
+		case t.is(",") && depth == 0:
+			flush()
+			continue
+		}
+		cur = append(cur, t)
+	}
+	flush()
+	return "(" + strings.Join(params, ", ") + ")"
 }
 
 // promotedProperties adds constructor-promoted parameters as properties.

@@ -33,6 +33,7 @@ type historyView struct {
 	refs           []histRef
 	rsel, rscroll  int
 	ref            string
+	path           string // repo-relative file the log is limited to, "" = all
 	lines          []git.LogLine
 	csel, cscroll  int
 	details        map[string]*git.CommitDetail
@@ -58,14 +59,20 @@ func (a *App) histLayout() histLayout {
 	return l
 }
 
-func (a *App) openHistory() {
+func (a *App) openHistory() { a.openFileHistory("") }
+
+// openFileHistory opens the history limited to path (repo-relative, "" = all files).
+func (a *App) openFileHistory(path string) {
 	if a.repo == nil {
 		a.setErr("Not a git repository")
 		return
 	}
+	a.closeSearch()
+	a.closeCompletion()
 	a.cmd.active = false
+	a.view.active = false
 	h := &a.hist
-	h.active, h.focus = true, paneCommits
+	h.active, h.focus, h.path = true, paneCommits, path
 	h.details = map[string]*git.CommitDetail{}
 	a.loadHistory()
 }
@@ -114,7 +121,7 @@ func (a *App) loadLog() {
 	if c := a.histCommit(); c != nil {
 		selected = c.Hash
 	}
-	lines, err := a.repo.LogGraph(h.ref, historyLimit)
+	lines, err := a.repo.LogGraph(h.ref, historyLimit, h.path)
 	if err != nil {
 		a.setErr("git: %v", err)
 	}
@@ -170,6 +177,29 @@ func (a *App) moveCommit(delta, dir int) {
 		h.fsel, h.fscroll = 0, 0
 	}
 	h.csel = i
+	a.selectHistFile()
+}
+
+// selectHistFile selects the filtered file in the commit's file list.
+func (a *App) selectHistFile() {
+	h := &a.hist
+	if h.path == "" || h.fsel != 0 {
+		return
+	}
+	d := a.histDetail()
+	if d == nil {
+		return
+	}
+	want := h.path
+	if c := a.histCommit(); c != nil && c.Path != "" {
+		want = c.Path // the file may have had another name back then
+	}
+	for i, f := range d.Files {
+		if f.Path == want {
+			h.fsel = i
+			return
+		}
+	}
 }
 
 func (a *App) moveRef(delta, dir int) {
@@ -253,6 +283,10 @@ func (a *App) historyRune(ch rune) bool {
 	switch {
 	case ch == 'q':
 		h.active = false
+	case ch == 'a' && h.path != "":
+		h.path = ""
+		a.loadLog()
+		a.setMsg("Showing history of all files")
 	case ch == 'r':
 		a.loadHistory()
 		a.setMsg("History reloaded")
@@ -412,7 +446,14 @@ func (a *App) drawHistory() {
 	if h.ref != "" {
 		filter = h.ref
 	}
-	a.put(g.edX, 1, g.w, " HISTORY   "+filter+"   (Tab pane, Enter open, c checkout, n new branch, y copy hash, Esc close)", box.Bold(true).Foreground(tcell.NewHexColor(0x61AFEF)))
+	title := " HISTORY   " + filter
+	hint := "   (Tab pane, Enter open, c checkout, n new branch, y copy hash, Esc close)"
+	if h.path != "" {
+		title += "   file " + h.path
+		hint = "   (a all files, Tab pane, Enter diff, y copy hash, Esc close)"
+	}
+	x := a.put(g.edX, 1, g.w, title, box.Bold(true).Foreground(tcell.NewHexColor(0x61AFEF)))
+	a.put(x, 1, g.w, hint, box.Foreground(histDim))
 	for y := l.top; y < bottom; y++ {
 		a.scr.SetContent(l.listX-1, y, '│', nil, box.Foreground(histDim))
 	}
@@ -602,4 +643,25 @@ func (a *App) drawHistDetail(l histLayout, box tcell.Style) {
 		}
 		a.put(x+3, y+row, l.x1, name, st.Foreground(color))
 	}
+}
+
+// fileHistoryPath is the repo-relative path of the current tab's file when
+// it has a git history to show, otherwise "".
+func (a *App) fileHistoryPath() string {
+	t := a.tab()
+	if a.repo == nil || t.buf.Path == "" {
+		return ""
+	}
+	rel, ok := a.repo.Rel(t.buf.Path)
+	if !ok {
+		return ""
+	}
+	if st := a.gitStatus; st != nil {
+		for _, f := range st.Files {
+			if f.Untracked() && (f.Path == rel || strings.HasSuffix(f.Path, "/") && strings.HasPrefix(rel, f.Path)) {
+				return ""
+			}
+		}
+	}
+	return rel
 }

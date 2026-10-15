@@ -154,7 +154,7 @@ func (a *App) gitClassOf(path string, dir bool) gitClass {
 
 // loadHead loads the HEAD version of a tab's file for the change markers.
 func (a *App) loadHead(t *Tab) {
-	t.head, t.hasHead, t.marks, t.marksVer = nil, false, nil, -1
+	t.head, t.hasHead, t.marks, t.hunks, t.marksVer = nil, false, nil, nil, -1
 	if a.repo == nil || t.buf.Path == "" {
 		return
 	}
@@ -188,7 +188,8 @@ func (t *Tab) updateMarks() {
 	for i := range cur {
 		cur[i] = string(t.buf.Line(i))
 	}
-	t.marks = git.Diff(t.head, cur)
+	t.hunks = git.Hunks(t.head, cur)
+	t.marks = git.Marks(t.hunks, len(cur))
 	t.marksVer = t.buf.Version()
 }
 
@@ -227,7 +228,7 @@ func (a *App) reloadFromDisk() {
 		t.sel = false
 		t.cur = b.Clamp(t.cur)
 		if t.hl != nil {
-			t.hl = syntax.NewHighlighter()
+			t.hl = syntax.NewHighlighter(t.lang)
 		}
 		t.lint, t.lintVer = nil, -1
 		a.startLint(t)
@@ -289,7 +290,7 @@ func (a *App) ask(question string, yes func()) {
 	a.prompt = p
 }
 
-// branchLabel is shown in the status bar.
+// branchLabel is the current branch with ahead/behind counts.
 func (a *App) branchLabel() string {
 	st := a.gitStatus
 	if a.repo == nil || st == nil {
@@ -301,9 +302,6 @@ func (a *App) branchLabel() string {
 	}
 	if st.Behind > 0 {
 		s += " ↓" + itoa(st.Behind)
-	}
-	if n := len(st.Files); n > 0 {
-		s += " ●" + itoa(n)
 	}
 	return s
 }

@@ -73,7 +73,7 @@ func TestLexMultiline(t *testing.T) {
 		"RAW;",
 		"return 1;",
 	}
-	h := NewHighlighter()
+	h := NewHighlighter(LangPHP)
 	check := func(li int, sub string, want Kind) {
 		t.Helper()
 		if got := kindAt(t, src[li], h.Line(src, li), sub); got != want {
@@ -95,7 +95,7 @@ func TestLexMultiline(t *testing.T) {
 
 func TestHighlighterInvalidate(t *testing.T) {
 	src := lines{"<?php", "$a = 1;", "$b = 2;"}
-	h := NewHighlighter()
+	h := NewHighlighter(LangPHP)
 	if kindAt(t, src[2], h.Line(src, 2), "$b") != Variable {
 		t.Fatal("expected variable")
 	}

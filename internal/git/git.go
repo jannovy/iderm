@@ -217,6 +217,26 @@ func (r *Repo) Discard(f FileStatus) error {
 	return err
 }
 
+// DiscardFile resets a file to its HEAD version in both the index and the
+// work tree; files not in HEAD are deleted.
+func (r *Repo) DiscardFile(f FileStatus) error {
+	if f.Untracked() {
+		return os.Remove(r.Abs(f.Path))
+	}
+	if f.X == 'A' || f.X == 'R' || f.X == 'C' {
+		if _, err := r.git("", "rm", "-q", "-f", "--", f.Path); err != nil {
+			return err
+		}
+		if f.X != 'R' {
+			return nil
+		}
+		_, err := r.git("", "restore", "--source=HEAD", "--staged", "--worktree", "--", f.Orig)
+		return err
+	}
+	_, err := r.git("", "restore", "--source=HEAD", "--staged", "--worktree", "--", f.Path)
+	return err
+}
+
 // Commit commits the index with message.
 func (r *Repo) Commit(message string) (string, error) {
 	if _, err := r.git(message, "commit", "-q", "-F", "-"); err != nil {

@@ -134,11 +134,15 @@ func (a *App) globalKey(ev *tcell.EventKey) bool {
 
 func (a *App) editorKey(ev *tcell.EventKey) {
 	t := a.tab()
+	if a.comp.active && a.comp.tab == t && a.completionKey(ev) {
+		return
+	}
 	before := t.buf.Version()
 	defer func() {
 		if t.buf.Version() != before {
 			a.scheduleLint(t)
 		}
+		a.afterEditorKey(ev)
 	}()
 	mod := ev.Modifiers()
 	shift := mod&tcell.ModShift != 0
@@ -242,7 +246,7 @@ func (a *App) editorKey(ev *tcell.EventKey) {
 	case tcell.KeyF3:
 		a.findNext(shift)
 	case tcell.KeyCtrlL:
-		if t.hl == nil || a.php == "" {
+		if !t.isPHP() || a.php == "" {
 			a.setErr("Syntax check is available for PHP files only (and needs php in PATH)")
 		} else {
 			a.startLint(t)
@@ -266,6 +270,8 @@ func (a *App) editorKey(ev *tcell.EventKey) {
 	case tcell.KeyRune:
 		if alt {
 			switch ev.Rune() {
+			case 'g':
+				a.toggleChanges()
 			case 'b':
 				t.moveTo(t.wordLeft(t.cur), shift)
 			case 'f':
@@ -396,6 +402,27 @@ func (a *App) handleMouse(ev *tcell.EventMouse) {
 	}
 	if a.cmd.active {
 		a.commanderMouse(x, y, btn)
+		return
+	}
+	if a.comp.active && a.completionMouse(x, y, btn) {
+		return
+	}
+	if a.changesMouse(x, y, btn) {
+		return
+	}
+	if y == g.h-2 && btn&tcell.Button1 != 0 && !a.mouseDown && x >= g.changesX[0] && x < g.changesX[1] {
+		a.mouseDown = true
+		a.toggleChanges()
+		return
+	}
+	if y == g.h-2 && btn&tcell.Button1 != 0 && !a.mouseDown && x >= g.fileListX[0] && x < g.fileListX[1] {
+		a.mouseDown = true
+		a.revealInTree()
+		return
+	}
+	if y == g.h-2 && btn&tcell.Button1 != 0 && !a.mouseDown && x >= g.fileGitX[0] && x < g.fileGitX[1] {
+		a.mouseDown = true
+		a.openFileHistory(a.fileHistoryPath())
 		return
 	}
 	if y == g.h-2 && btn&tcell.Button1 != 0 && !a.mouseDown && x >= g.branchX[0] && x < g.branchX[1] {

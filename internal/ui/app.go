@@ -34,6 +34,9 @@ type geometry struct {
 	gutterW   int
 	tabRanges [][2]int // x ranges of tab titles
 	branchX   [2]int   // x range of the branch in the status bar
+	fileGitX  [2]int   // x range of the [->GIT] button in the status bar
+	fileListX [2]int   // x range of the [< LIST] button in the status bar
+	changesX  [2]int   // x range of "Changes: N" in the status bar
 }
 
 // App is the editor application.
@@ -91,6 +94,8 @@ type App struct {
 	hist         historyView
 	view         textView
 	cmd          commander
+	comp         completionPopup
+	changes      changesWin
 
 	lintTimer *time.Timer
 	quit      bool
@@ -138,6 +143,9 @@ func (a *App) Run() (err error) {
 		a.startLint(t)
 	}
 	a.buildIndex()
+	if a.php != "" {
+		go index.LoadBuiltins(a.php)
+	}
 	a.openRepo()
 	a.startGitTicker()
 	for !a.quit {
@@ -371,6 +379,33 @@ func (a *App) focusTreeCmd() {
 	}
 }
 
+// inTree reports whether path is an existing file shown in the file tree.
+func (a *App) inTree(path string) bool {
+	if path == "" {
+		return false
+	}
+	if r, err := filepath.Rel(a.tree.root.path, path); err != nil || strings.HasPrefix(r, "..") {
+		return false
+	}
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// revealInTree shows the tree with the current file selected.
+func (a *App) revealInTree() {
+	a.closeCompletion()
+	if p := a.tab().buf.Path; a.tree.reveal(p) {
+		a.showTree, a.focus = true, focusTree
+	} else {
+		a.tree.reload()
+		if a.tree.reveal(p) {
+			a.showTree, a.focus = true, focusTree
+		} else {
+			a.setErr("%s is not in the file tree", a.relPath(p))
+		}
+	}
+}
+
 func (a *App) hasTab(t *Tab) bool {
 	for _, x := range a.tabs {
 		if x == t {
@@ -382,7 +417,7 @@ func (a *App) hasTab(t *Tab) bool {
 
 // scheduleLint runs a syntax check shortly after the user stops typing.
 func (a *App) scheduleLint(t *Tab) {
-	if a.php == "" || t.hl == nil {
+	if a.php == "" || !t.isPHP() {
 		return
 	}
 	if a.lintTimer != nil {
@@ -395,7 +430,7 @@ func (a *App) scheduleLint(t *Tab) {
 }
 
 func (a *App) startLint(t *Tab) {
-	if a.php == "" || t.hl == nil || !a.hasTab(t) {
+	if a.php == "" || !t.isPHP() || !a.hasTab(t) {
 		return
 	}
 	src, ver, php, scr := t.buf.Text(), t.buf.Version(), a.php, a.scr

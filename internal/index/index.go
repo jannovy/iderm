@@ -311,7 +311,13 @@ func (ix *Index) SearchSymbols(q string, limit int) []*Symbol {
 }
 
 func (ix *Index) classesByFQN(fqn string) []*ClassInfo {
-	return ix.classes[strings.ToLower(fqn)]
+	if c := ix.classes[strings.ToLower(fqn)]; len(c) > 0 {
+		return c
+	}
+	if c := builtinClass(fqn); c != nil {
+		return []*ClassInfo{c}
+	}
+	return nil
 }
 
 // findMember looks up a member in a class and its traits, parents and interfaces.
@@ -357,7 +363,13 @@ func (ix *Index) membersNamed(name string, kind SymKind) []*Symbol {
 
 func (ix *Index) lookupFunction(f *FileInfo, name string) []*Symbol {
 	if strings.HasPrefix(name, "\\") {
-		return ix.functions[strings.ToLower(name[1:])]
+		if s := ix.functions[strings.ToLower(name[1:])]; len(s) > 0 {
+			return s
+		}
+		if b := builtinFunc(name[1:]); b != nil {
+			return []*Symbol{b}
+		}
+		return nil
 	}
 	lower := strings.ToLower(name)
 	if fq, ok := f.FuncUses[lower]; ok {
@@ -366,5 +378,11 @@ func (ix *Index) lookupFunction(f *FileInfo, name string) []*Symbol {
 	if s := ix.functions[strings.ToLower(join(f.Namespace, name))]; len(s) > 0 {
 		return s
 	}
-	return ix.functions[lower]
+	if s := ix.functions[lower]; len(s) > 0 {
+		return s
+	}
+	if b := builtinFunc(name); b != nil {
+		return []*Symbol{b}
+	}
+	return nil
 }

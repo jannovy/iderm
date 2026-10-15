@@ -44,7 +44,21 @@ func (r *resolver) tok(i int) Token {
 // Definition finds the declaration of the symbol at (line, col) in src.
 // The file's own declarations are refreshed from src first, so unsaved
 // changes are taken into account. msg explains why nothing was found.
-func (ix *Index) Definition(path string, src Lines, line, col int) (res []Location, msg string) {
+func (ix *Index) Definition(path string, src Lines, line, col int) ([]Location, string) {
+	res, msg := ix.definition(path, src, line, col)
+	var out []Location
+	for _, l := range res {
+		if l.File != "" {
+			out = append(out, l)
+		}
+	}
+	if len(out) == 0 && len(res) > 0 {
+		return nil, res[0].Name + " is built into PHP"
+	}
+	return out, msg
+}
+
+func (ix *Index) definition(path string, src Lines, line, col int) (res []Location, msg string) {
 	toks := Tokenize(src)
 	f := Parse(path, toks)
 	ix.UpdateInfo(f)

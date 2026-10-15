@@ -24,13 +24,15 @@ type Tab struct {
 
 	scrollY, scrollX int
 
-	hl      *syntax.Highlighter // nil for non-PHP files
+	hl      *syntax.Highlighter // nil for plain text
+	lang    syntax.Lang
 	lint    []lintError
 	lintVer int // buffer version the lint result belongs to
 
 	head     []string // file content at HEAD, for change markers
 	hasHead  bool
 	marks    []git.LineMark
+	hunks    []git.Hunk
 	marksVer int
 }
 
@@ -41,26 +43,21 @@ func newTab(b *buffer.Buffer) *Tab {
 }
 
 func (t *Tab) updateLanguage() {
-	if isPHP(t.buf.Path) {
-		if t.hl == nil {
-			t.hl = syntax.NewHighlighter()
-		}
-	} else {
+	lang := syntax.LangFor(t.buf.Path)
+	switch {
+	case lang == syntax.LangText:
 		t.hl = nil
+	case t.hl == nil || lang != t.lang:
+		t.hl = syntax.NewHighlighter(lang)
+	}
+	t.lang = lang
+	if !t.isPHP() {
 		t.lint = nil
 	}
 }
 
-func isPHP(path string) bool {
-	if path == "" {
-		return true
-	}
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".php", ".phtml", ".inc", ".phpt", ".module":
-		return true
-	}
-	return false
-}
+// isPHP reports whether the tab holds PHP code (lint, completion, definitions).
+func (t *Tab) isPHP() bool { return t.lang == syntax.LangPHP }
 
 func (t *Tab) title() string {
 	if t.buf.Path == "" {

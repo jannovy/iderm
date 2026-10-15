@@ -15,6 +15,7 @@ type Commit struct {
 	Author  string
 	Date    string
 	Subject string
+	Path    string // path of the followed file in this commit (file logs only)
 }
 
 // LogLine is a row of the history graph; Commit is nil for connector rows.
@@ -24,14 +25,24 @@ type LogLine struct {
 }
 
 // LogGraph returns up to n commits of ref (all refs when ref is "") with
-// the ASCII graph drawn by git.
-func (r *Repo) LogGraph(ref string, n int) ([]LogLine, error) {
+// the ASCII graph drawn by git. A non-empty path limits the log to commits
+// touching that file, following renames, without a graph.
+func (r *Repo) LogGraph(ref string, n int, path string) ([]LogLine, error) {
 	format := strings.Join([]string{"", "%H", "%h", "%D", "%an", "%ad", "%s"}, "%x1f")
-	args := []string{"log", "--graph", "--color=never", "--date=format:%Y-%m-%d %H:%M", "--format=" + format, "-n", strconv.Itoa(n)}
+	args := []string{"log", "--color=never", "--date=format:%Y-%m-%d %H:%M", "--format=" + format, "-n", strconv.Itoa(n)}
 	if ref == "" {
 		args = append(args, "--all")
 	} else {
-		args = append(args, ref, "--")
+		args = append(args, ref)
+	}
+	if path != "" {
+		args = append(args, "--follow", "--name-only") // git cannot draw a graph of a followed file
+	} else {
+		args = append(args, "--graph")
+	}
+	args = append(args, "--")
+	if path != "" {
+		args = append(args, path)
 	}
 	out, err := r.git("", args...)
 	if err != nil {
@@ -44,7 +55,11 @@ func (r *Repo) LogGraph(ref string, n int) ([]LogLine, error) {
 	for _, l := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
 		i := strings.Index(l, fieldSep)
 		if i < 0 {
-			if l != "" {
+			if path != "" {
+				if n := len(lines); n > 0 && l != "" {
+					lines[n-1].Commit.Path = l
+				}
+			} else if l != "" {
 				lines = append(lines, LogLine{Graph: strings.TrimRight(l, " ")})
 			}
 			continue

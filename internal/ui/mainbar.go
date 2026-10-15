@@ -102,12 +102,8 @@ func (a *App) drawMainBar() {
 		a.barRanges = append(a.barRanges, [2]int{start, x})
 		x++
 	}
-	branch := a.branchLabel()
 	for _, path := range []string{a.shortPath(a.root), filepath.Base(a.root)} {
 		right := path + " "
-		if branch != "" {
-			right = branch + "   " + right
-		}
 		if rx := w - runewidth.StringWidth(right); rx > x+2 {
 			a.putReal(rx, 0, w, right, barStyle)
 			return

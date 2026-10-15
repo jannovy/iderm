@@ -21,9 +21,15 @@ const (
 // maxEdits bounds the diff work; larger differences mark the whole middle as modified.
 const maxEdits = 2000
 
-// Diff compares base with cur and returns a mark for every line of cur.
-func Diff(base, cur []string) []LineMark {
-	marks := make([]LineMark, len(cur))
+// Hunk is a block of changed lines: cur[Start:End] replaces base[BaseStart:BaseEnd].
+// Start == End is a pure deletion before line Start, BaseStart == BaseEnd an addition.
+type Hunk struct {
+	Start, End         int
+	BaseStart, BaseEnd int
+}
+
+// Hunks returns the changed blocks between base and cur in order.
+func Hunks(base, cur []string) []Hunk {
 	p := 0
 	for p < len(base) && p < len(cur) && base[p] == cur[p] {
 		p++
@@ -33,47 +39,74 @@ func Diff(base, cur []string) []LineMark {
 		s++
 	}
 	a, b := base[p:len(base)-s], cur[p:len(cur)-s]
+	if len(a) == 0 && len(b) == 0 {
+		return nil
+	}
 	ops := myers(a, b)
 	if ops == nil {
-		for j := p; j < len(cur)-s; j++ {
-			marks[j] = Modified
-		}
-		return marks
+		return []Hunk{{p, len(cur) - s, p, len(base) - s}}
 	}
-	bi := p
+	var hunks []Hunk
+	ai, bi := p, p
 	for k := 0; k < len(ops); {
 		if ops[k] == opEq {
+			ai++
 			bi++
 			k++
 			continue
 		}
-		dels, start := 0, bi
+		h := Hunk{Start: bi, BaseStart: ai}
 		for k < len(ops) && ops[k] != opEq {
 			if ops[k] == opDel {
-				dels++
+				ai++
 			} else {
 				bi++
 			}
 			k++
 		}
+		h.End, h.BaseEnd = bi, ai
+		hunks = append(hunks, h)
+	}
+	return hunks
+}
+
+// Diff compares base with cur and returns a mark for every line of cur.
+func Diff(base, cur []string) []LineMark {
+	return Marks(Hunks(base, cur), len(cur))
+}
+
+// Marks converts hunks to a mark for each of the n lines of cur.
+func Marks(hunks []Hunk, n int) []LineMark {
+	marks := make([]LineMark, n)
+	for _, h := range hunks {
 		switch {
-		case bi == start: // pure deletion
-			if start < len(cur) {
-				marks[start] |= DeletedAbove
-			} else if len(cur) > 0 {
-				marks[len(cur)-1] |= DeletedBelow
+		case h.Start == h.End: // pure deletion
+			if h.Start < n {
+				marks[h.Start] |= DeletedAbove
+			} else if n > 0 {
+				marks[n-1] |= DeletedBelow
 			}
-		case dels == 0:
-			for j := start; j < bi; j++ {
+		case h.BaseStart == h.BaseEnd:
+			for j := h.Start; j < h.End; j++ {
 				marks[j] |= Added
 			}
 		default:
-			for j := start; j < bi; j++ {
+			for j := h.Start; j < h.End; j++ {
 				marks[j] |= Modified
 			}
 		}
 	}
 	return marks
+}
+
+// HunkAt returns the index of the hunk shown at line of cur, or -1.
+func HunkAt(hunks []Hunk, line, n int) int {
+	for i, h := range hunks {
+		if line >= h.Start && line < h.End || h.Start == h.End && (line == h.Start || h.Start >= n && line == n-1) {
+			return i
+		}
+	}
+	return -1
 }
 
 // myers returns the shortest edit script from a to b, or nil when it would

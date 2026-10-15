@@ -171,7 +171,7 @@ func TestHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lines, err := r.LogGraph("", 50)
+	lines, err := r.LogGraph("", 50, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,9 +190,13 @@ func TestHistory(t *testing.T) {
 	if commits[0].Subject != "merge feature" || commits[0].Refs[0] != "HEAD -> main" || !strings.HasPrefix(lines[0].Graph, "*") {
 		t.Fatalf("top = %+v graph %q", commits[0], lines[0].Graph)
 	}
-	only, _ := r.LogGraph("feature", 50)
+	only, _ := r.LogGraph("feature", 50, "")
 	if len(only) != 2 {
 		t.Fatalf("feature log = %+v", only)
+	}
+	file, _ := r.LogGraph("", 50, "c.php")
+	if len(file) != 2 || file[0].Commit.Subject != "rename a to c" || file[1].Commit.Subject != "first" || file[1].Commit.Path != "a.php" || file[0].Commit.Path != "c.php" {
+		t.Fatalf("file log = %+v", file)
 	}
 
 	var renameHash string
@@ -244,5 +248,39 @@ func TestHistory(t *testing.T) {
 	}
 	if err := r.SwitchNewAt("fix", renameHash); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDiscardFile(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, content string) { os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644) }
+	read := func(name string) string { b, _ := os.ReadFile(filepath.Join(dir, name)); return string(b) }
+	run(t, dir, "init", "-q", "-b", "main")
+	write("a.php", "a\n")
+	write("b.php", "b\n")
+	write("c.php", "c\n")
+	run(t, dir, "add", ".")
+	run(t, dir, "commit", "-q", "-m", "init")
+	r, _ := Open(dir)
+
+	write("a.php", "changed\n")
+	run(t, dir, "add", "a.php")
+	write("a.php", "changed again\n")
+	write("new.php", "n\n")
+	run(t, dir, "add", "new.php")
+	write("untracked.php", "u\n")
+	run(t, dir, "mv", "b.php", "moved.php")
+	os.Remove(filepath.Join(dir, "c.php"))
+	st, _ := r.Status()
+	for _, f := range st.Files {
+		if err := r.DiscardFile(f); err != nil {
+			t.Fatalf("%+v: %v", f, err)
+		}
+	}
+	if st, _ = r.Status(); len(st.Files) != 0 {
+		t.Fatalf("left over: %+v", st.Files)
+	}
+	if read("a.php") != "a\n" || read("b.php") != "b\n" || read("c.php") != "c\n" || read("new.php") != "" {
+		t.Fatalf("contents: %q %q %q %q", read("a.php"), read("b.php"), read("c.php"), read("new.php"))
 	}
 }

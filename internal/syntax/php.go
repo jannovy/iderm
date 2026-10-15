@@ -1,4 +1,5 @@
-// Package syntax provides a line-oriented PHP lexer for syntax highlighting.
+// Package syntax provides line-oriented lexers for syntax highlighting of
+// PHP, Latte, HTML, CSS, JavaScript/TypeScript, JSON and NEON.
 package syntax
 
 import (
@@ -22,6 +23,8 @@ const (
 	Constant
 	Function
 	Operator
+	Attr // HTML attribute name
+	Key  // JSON/NEON key, CSS property
 )
 
 // Mode is the lexer mode carried from one line to the next.
@@ -36,12 +39,32 @@ const (
 	ModeBacktick
 	ModeHeredoc
 	ModeNowdoc
+	ModeTag         // inside an HTML tag, between attributes
+	ModeAttrSingle  // HTML attribute value in '…'
+	ModeAttrDouble  // HTML attribute value in "…"
+	ModeHTMLComment // <!-- … -->
+	ModeJS
+	ModeJSComment
+	ModeJSSingle
+	ModeJSDouble
+	ModeJSTemplate
+	ModeCSS
+	ModeCSSComment
+	ModeJSON
+	ModeNEON
+	ModeLatte        // inside a Latte tag {…}
+	ModeLatteAttr    // Latte expression in n:attribute="…"
+	ModeLatteComment // {* … *}
 )
 
 // State is the lexer state at the start of a line.
 type State struct {
 	Mode  Mode
 	Label string // heredoc/nowdoc terminator
+	Lang  Lang
+	Ret   Mode  // mode to return to after embedded PHP or Latte
+	Tag   uint8 // tagScript or tagStyle while inside such an opening tag
+	Depth uint8 // CSS brace depth
 }
 
 // Initial is the state at the start of a PHP file (inline HTML).
@@ -73,37 +96,54 @@ type lexer struct {
 	i      int
 	st     State
 	member bool // previous token was -> ?-> or ::
+	rich   bool // highlight HTML, JS and CSS around PHP
+	nattr  bool // the last attribute name was a Latte n:attribute
 }
 
-// Lex classifies every rune of line, starting in state st, and returns
-// the state at the end of the line.
+// Lex classifies every rune of PHP code in line, starting in state st, and
+// returns the state at the end of the line. Inline HTML is marked as HTML.
 func Lex(line []rune, st State) ([]Kind, State) {
-	l := &lexer{s: line, k: make([]Kind, len(line)), st: st}
+	return lex(line, st, false)
+}
+
+func lex(line []rune, st State, rich bool) ([]Kind, State) {
+	l := &lexer{s: line, k: make([]Kind, len(line)), st: st, rich: rich}
 	if st.Mode == ModeHeredoc || st.Mode == ModeNowdoc {
 		l.heredocEnd()
 	}
 	for l.i < len(l.s) {
-		switch l.st.Mode {
-		case ModeHTML:
-			l.html()
-		case ModePHP:
-			l.php()
-		case ModeComment:
-			l.blockComment()
-		case ModeSingle:
-			l.single()
-		case ModeDouble:
-			l.interpolated('"')
-		case ModeBacktick:
-			l.interpolated('`')
-		case ModeHeredoc:
-			l.interpolated(-1)
-		case ModeNowdoc:
-			l.mark(l.i, len(l.s), String)
-			l.i = len(l.s)
+		if l.st.Mode >= ModePHP && l.st.Mode <= ModeNowdoc {
+			l.phpMode()
+			continue
 		}
+		if l.st.Mode == ModeHTML && !(rich || l.st.Lang != LangPHP) {
+			l.html()
+			continue
+		}
+		l.markupMode()
 	}
+	l.endOfLine()
 	return l.k, l.st
+}
+
+func (l *lexer) phpMode() {
+	switch l.st.Mode {
+	case ModePHP:
+		l.php()
+	case ModeComment:
+		l.blockComment()
+	case ModeSingle:
+		l.single()
+	case ModeDouble:
+		l.interpolated('"')
+	case ModeBacktick:
+		l.interpolated('`')
+	case ModeHeredoc:
+		l.interpolated(-1)
+	case ModeNowdoc:
+		l.mark(l.i, len(l.s), String)
+		l.i = len(l.s)
+	}
 }
 
 func (l *lexer) mark(from, to int, k Kind) {
@@ -162,7 +202,7 @@ func (l *lexer) php() {
 	case c == '?' && l.at(i+1) == '>':
 		l.mark(i, i+2, Tag)
 		l.i += 2
-		l.st.Mode = ModeHTML
+		l.st.Mode = l.st.Ret
 	case c == '/' && l.at(i+1) == '*':
 		l.mark(i, i+2, Comment)
 		l.i += 2
@@ -312,7 +352,7 @@ func (l *lexer) heredocStart() bool {
 	}
 	l.mark(l.i, k, String)
 	l.i = k
-	l.st = State{Mode: ModeHeredoc, Label: label}
+	l.st.Mode, l.st.Label = ModeHeredoc, label
 	if quote == '\'' {
 		l.st.Mode = ModeNowdoc
 	}
@@ -337,7 +377,7 @@ func (l *lexer) heredocEnd() {
 	}
 	l.mark(j, end, String)
 	l.i = end
-	l.st = State{Mode: ModePHP}
+	l.st.Mode, l.st.Label = ModePHP, ""
 }
 
 func (l *lexer) number() {
@@ -434,9 +474,9 @@ type Highlighter struct {
 	valid  int // states[:valid] are up to date
 }
 
-// NewHighlighter creates a highlighter for a PHP document.
-func NewHighlighter() *Highlighter {
-	return &Highlighter{states: []State{Initial}, valid: 1}
+// NewHighlighter creates a highlighter for a document in lang.
+func NewHighlighter(lang Lang) *Highlighter {
+	return &Highlighter{states: []State{initialState(lang)}, valid: 1}
 }
 
 // Invalidate marks lines after line as needing re-lexing. Negative values are ignored.
@@ -450,7 +490,7 @@ func (h *Highlighter) Invalidate(line int) {
 func (h *Highlighter) Line(src Lines, i int) []Kind {
 	for h.valid <= i {
 		j := h.valid - 1
-		_, st := Lex(src.Line(j), h.states[j])
+		_, st := lex(src.Line(j), h.states[j], true)
 		if h.valid < len(h.states) {
 			h.states[h.valid] = st
 		} else {
@@ -458,7 +498,7 @@ func (h *Highlighter) Line(src Lines, i int) []Kind {
 		}
 		h.valid++
 	}
-	k, _ := Lex(src.Line(i), h.states[i])
+	k, _ := lex(src.Line(i), h.states[i], true)
 	return k
 }
 

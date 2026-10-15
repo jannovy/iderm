@@ -44,6 +44,8 @@ var (
 		syntax.Constant: styleDefault.Foreground(tcell.NewHexColor(0xD19A66)),
 		syntax.Function: styleDefault.Foreground(tcell.NewHexColor(0x61AFEF)),
 		syntax.Operator: styleDefault.Foreground(tcell.NewHexColor(0x56B6C2)),
+		syntax.Attr:     styleDefault.Foreground(tcell.NewHexColor(0xD19A66)),
+		syntax.Key:      styleDefault.Foreground(tcell.NewHexColor(0xE06C75)),
 	}
 )
 
@@ -84,6 +86,8 @@ func (a *App) draw() {
 	a.drawEditor()
 	a.drawStatus()
 	a.drawMessage()
+	a.drawChanges()
+	a.drawCompletion()
 	if a.cmd.active {
 		a.drawCommander()
 		if a.prompt == nil {
@@ -354,21 +358,31 @@ func (a *App) drawStatus() {
 	if t.buf.Dirty() {
 		name += " [+]"
 	}
-	lang := "Text"
-	if t.hl != nil {
-		lang = "PHP"
-	}
+	lang := syntax.LangName(t.lang, t.buf.Path)
 	eol := "LF"
 	if t.buf.CRLF {
 		eol = "CRLF"
 	}
-	a.put(1, y, g.w, name, styleStatus.Bold(true))
+	x := a.put(1, y, g.w, name, styleStatus.Bold(true))
+	button := styleStatus.Foreground(tcell.NewHexColor(0x61AFEF)).Bold(true)
+	a.geo.fileListX, a.geo.fileGitX = [2]int{}, [2]int{}
+	if a.inTree(t.buf.Path) {
+		x++
+		end := a.put(x, y, g.w, "[< LIST]", button)
+		a.geo.fileListX = [2]int{x, end}
+		x = end
+	}
+	if a.fileHistoryPath() != "" {
+		x++
+		end := a.put(x, y, g.w, "[->GIT]", button)
+		a.geo.fileGitX = [2]int{x, end}
+	}
 
 	lint, lintSt := "", styleStatus
 	switch {
 	case a.indexing:
 		lint = "⟳ indexing…"
-	case t.hl == nil || a.php == "":
+	case !t.isPHP() || a.php == "":
 	case t.lintVer != t.buf.Version():
 		lint = "… checking"
 	case len(t.lint) == 0:
@@ -383,11 +397,19 @@ func (a *App) drawStatus() {
 		rx -= runewidth.StringWidth(lint) + 3
 		a.put(rx, y, g.w, lint, lintSt)
 	}
-	a.geo.branchX = [2]int{}
+	a.geo.branchX, a.geo.changesX = [2]int{}, [2]int{}
 	if b := a.branchLabel(); b != "" {
 		bx := rx - runewidth.StringWidth(b) - 3
 		a.put(bx, y, rx, b, styleStatus.Foreground(gitColors[gcAdded]))
 		a.geo.branchX = [2]int{bx, bx + runewidth.StringWidth(b)}
+		rx = bx
+	}
+	if n := len(a.changedFiles()); n > 0 {
+		label := fmt.Sprintf(" Changes: %d ", n)
+		st := styleStatus.Background(tcell.NewHexColor(0xC0392B)).Foreground(tcell.ColorWhite).Bold(true)
+		cx := rx - runewidth.StringWidth(label) - 2
+		a.put(cx, y, rx, label, st)
+		a.geo.changesX = [2]int{cx, cx + runewidth.StringWidth(label)}
 	}
 }
 
@@ -452,7 +474,7 @@ var helpLines = []string{
 	"  Ctrl+B   show / hide tree         Shift+arrows      select",
 	"  Enter    open / expand            Home              smart home",
 	"  F5       reload",
-	"                                  PHP",
+	"  [< LIST] show file in tree     PHP",
 	"Search                              Ctrl+L            check syntax (php -l)",
 	"  Ctrl+P   search everywhere:       F8                jump to next error",
 	"           files, classes, text     F12, Ctrl+]       go to definition",
@@ -461,10 +483,16 @@ var helpLines = []string{
 	"  Ctrl+R   replace",
 	"  Ctrl+G   go to line[:col]       Syntax is checked while you type.",
 	"",
+	"Autocomplete: appears while typing (after -> :: $ or 2 letters), Ctrl+Space opens it,",
+	"  ↑↓ choose, Enter insert, Tab replace the rest of the word, Esc close",
+	"",
 	"Git  (gutter: green ▎ added, blue ▎ changed, red ▔ deleted)",
 	"  F9, Ctrl+\\  git panel            Space stage/unstage   c commit   d discard",
 	"  click ⎇ in status bar             Enter diff  p push  P pull  b branches",
 	"  Shift+F9 or l in panel  history: branches, commit graph, commit files and diffs",
+	"  [->GIT] in status bar  history of the current file (a shows all files)",
+	"  Changes: N in status bar or Alt+G  show / hide the changes window: click a file to preview,",
+	"         double-click to open, [Discard] a change or the whole file",
 	"",
 	"Press any key to close.",
 }
